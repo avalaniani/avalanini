@@ -291,32 +291,38 @@ function App(){
     let nextOrder = getNextOrderForDate(newDate,p);
     return p.map(t=>ids.includes(t.id)?{...t,dueDate:newDate,order:nextOrder++}:t);
   });};
-  const reorderTasksInDate=(draggedId,targetId,position,date)=>{
+  const reorderTasksInDate=(draggedIds,targetId,position,date)=>{
+    const ids = Array.isArray(draggedIds)?draggedIds:[draggedIds];
     setTasks(p=>{
-      const draggedTask = p.find(t=>t.id===draggedId);
-      if(!draggedTask) return p;
+      const draggedTasks = p.filter(t=>ids.includes(t.id)).sort((a,b)=>{
+        if(a.dueDate!==b.dueDate) return a.dueDate<b.dueDate?-1:1;
+        const ao=typeof a.order==='number'?a.order:9999;
+        const bo=typeof b.order==='number'?b.order:9999;
+        if(ao!==bo) return ao-bo;
+        return (a.dueTime||"9999")>(b.dueTime||"9999")?1:-1;
+      });
+      if(!draggedTasks.length) return p;
       const dateGroup = p.filter(t=>t.dueDate===date).sort((a,b)=>{
         const ao=typeof a.order==='number'?a.order:9999;
         const bo=typeof b.order==='number'?b.order:9999;
         if(ao!==bo) return ao-bo;
         return (a.dueTime||"9999")>(b.dueTime||"9999")?1:-1;
       });
-      const dragged = dateGroup.find(t=>t.id===draggedId);
-      const remaining = dateGroup.filter(t=>t.id!==draggedId);
+      const remaining = dateGroup.filter(t=>!ids.includes(t.id));
       let reordered;
-      const itemToInsert = dragged || draggedTask;
       if(!targetId || position==="end"){
-        reordered = [...remaining,itemToInsert];
+        reordered = [...remaining,...draggedTasks];
       } else {
         const targetIndex = remaining.findIndex(t=>t.id===targetId);
         if(targetIndex<0) return p;
         const insertAt = position==="after" ? targetIndex+1 : targetIndex;
-        reordered = [...remaining.slice(0,insertAt),itemToInsert,...remaining.slice(insertAt)];
+        reordered = [...remaining.slice(0,insertAt),...draggedTasks,...remaining.slice(insertAt)];
       }
       const orderMap = Object.fromEntries(reordered.map((t,i)=>[t.id,i]));
       return p.map(t=>{
-        if(t.id===draggedId) return {...t,dueDate:date,order:orderMap[draggedId]};
-        return t.dueDate===date ? {...t,order:orderMap[t.id]} : t;
+        if(ids.includes(t.id)) return {...t,dueDate:date,order:orderMap[t.id]};
+        if(t.dueDate===date) return {...t,order:orderMap[t.id]};
+        return t;
       });
     });};
   const deletePermanent=ids=>{

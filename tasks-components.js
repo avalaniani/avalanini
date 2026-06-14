@@ -550,7 +550,7 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
       return;
     }
     if(selected.size>0){
-      onRescheduleMany([...selected],ds);
+      onReorder([...selected],null,"end",ds);
       setSelected(new Set());
     } else if(dragTask.current.dueDate===ds){
       onReorder(dragTask.current.id,null,"end",ds);
@@ -576,15 +576,22 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
     e.preventDefault();
     if(!dragTask.current) return;
     const draggedId = dragTask.current.id;
-    if(draggedId===t.id){
-      setDragOverTask({taskId:null,position:"after"});
-      return;
-    }
     const position = dragOverTask.taskId===t.id ? dragOverTask.position : "after";
     if(selected.size>0){
-      onRescheduleMany([...selected],ds);
+      const selectedIds = [...selected];
+      if(selectedIds.includes(t.id)){
+        setDragOverTask({taskId:null,position:"after"});
+        setOverDate(null);
+        return;
+      }
+      onReorder(selectedIds,t.id,position,ds);
       setSelected(new Set());
     } else {
+      if(draggedId===t.id){
+        setDragOverTask({taskId:null,position:"after"});
+        setOverDate(null);
+        return;
+      }
       onReorder(draggedId,t.id,position,ds);
     }
     setOverDate(null);
@@ -821,7 +828,7 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
       return;
     }
     if(selected.size>0){
-      onRescheduleMany([...selected],ds);
+      onReorder([...selected],null,"end",ds);
       setSelected(new Set());
     } else if(dragTask.current.dueDate===ds){
       onReorder(dragTask.current.id,null,"end",ds);
@@ -844,15 +851,22 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
     e.preventDefault();
     if(!dragTask.current) return;
     const draggedId = dragTask.current.id;
-    if(draggedId===t.id){
-      setDragOverTask({taskId:null,position:"after"});
-      return;
-    }
     const position = dragOverTask.taskId===t.id ? dragOverTask.position : "after";
     if(selected.size>0){
-      onRescheduleMany([...selected],ds);
+      const selectedIds = [...selected];
+      if(selectedIds.includes(t.id)){
+        setDragOverTask({taskId:null,position:"after"});
+        setOverDate(null);
+        return;
+      }
+      onReorder(selectedIds,t.id,position,ds);
       setSelected(new Set());
     } else {
+      if(draggedId===t.id){
+        setDragOverTask({taskId:null,position:"after"});
+        setOverDate(null);
+        return;
+      }
       onReorder(draggedId,t.id,position,ds);
     }
     setOverDate(null); setDragOverTask({taskId:null,position:"after"}); setDraggingId(null); dragTask.current=null;
