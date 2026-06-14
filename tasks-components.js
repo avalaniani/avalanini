@@ -471,6 +471,128 @@ function TodayView({tasks,onEdit,onToggle,onPin,onDelete,getProjColor,getProjNam
   );
 }
 
+function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,onQuickAdd,getProjColor,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
+  const [draggingId,setDraggingId]=useState(null);
+  const [overDate,setOverDate]=useState(null);
+  const [selected,setSelected]=useState(new Set());
+  const [hoveredMore,setHoveredMore]=useState(null);
+  const dragTask=useRef(null);
+  const longPressTimer=useRef(null);
+  const moreHideTimer=useRef(null);
+  const {addDate,handleCellClick,renderQuickAdd,showHint}=useDayQuickAdd(onQuickAdd);
+  const weekDates=getWeekDates(offset);
+  const todayStr=today();
+  const startDate=weekDates[0];
+  const endDate=weekDates[6];
+  const weekLabel = `${DAYS_HE[startDate.getDay()]} ${startDate.getDate()} - ${DAYS_HE[endDate.getDay()]} ${endDate.getDate()} ${MONTHS_HE[endDate.getMonth()]}`;
+
+  const handleDragStart=(e,t)=>{ 
+    dragTask.current=t; 
+    setDraggingId(t.id); 
+    e.dataTransfer.setData("text/plain", JSON.stringify({ids:[t.id]})); 
+    e.dataTransfer.effectAllowed="move"; 
+    onGlobalDragStart?.([t.id]);
+  };
+  const handleDragEnd=()=>{ setDraggingId(null); setOverDate(null); dragTask.current=null; onGlobalDragEnd?.(); };
+  const handleDrop=(e,ds)=>{
+    e.preventDefault();
+    if(selected.size>0){
+      onRescheduleMany([...selected],ds);
+      setSelected(new Set());
+    } else if(dragTask.current && dragTask.current.dueDate!==ds){
+      onReschedule(dragTask.current.id,ds);
+    }
+    setOverDate(null);
+    setDraggingId(null);
+    dragTask.current=null;
+  };
+  const handleTouchStart=(e,t)=>{ longPressTimer.current=setTimeout(()=>{ dragTask.current=t; setDraggingId(t.id); },500); };
+  const handleTouchEnd=()=>{ clearTimeout(longPressTimer.current); };
+  const handleChipClick=(e,t)=>{
+    e.stopPropagation();
+    if(e.ctrlKey||e.metaKey){
+      e.preventDefault();
+      setSelected(prev=>{ const next=new Set(prev); next.has(t.id)?next.delete(t.id):next.add(t.id); return next; });
+    } else {
+      if(!draggingId) onEdit(t);
+    }
+  };
+  const applyMultiselect=()=>{
+    if(!addDate && !overDate) return;
+    if(!selected.size) return;
+    const ds = overDate || dateToStr(weekDates[0]);
+    onRescheduleMany([...selected],ds);
+    setSelected(new Set());
+  };
+
+  return (
+    <div>
+      <div className="week-nav">
+        <button className="week-nav-btn" onClick={()=>setOffset(o=>o-1)}>← שבוע קודם</button>
+        <button className="week-nav-btn" onClick={()=>setOffset(0)}>היום</button>
+        <button className="week-nav-btn" onClick={()=>setOffset(o=>o+1)}>שבוע הבא →</button>
+        <h3>{weekLabel}</h3>
+      </div>
+      <div className="week-grid">
+        {weekDates.map(date=>{
+          const ds=dateToStr(date);
+          const isToday=ds===todayStr;
+          const dayTasks=tasks.filter(t=>t.dueDate===ds).sort((a,b)=>(a.dueTime||"")>(b.dueTime||"")?1:-1);
+          const visible=dayTasks.slice(0,3);
+          const moreCount=dayTasks.length-visible.length;
+          return (
+            <div key={ds}
+              className={"week-cell"+(isToday?" today-col":"")+(overDate===ds?" drag-over":"")+(addDate===ds?" add-active":"")}
+              onClick={e=>handleCellClick(e,ds,{draggingId,selectedSize:selected.size})}
+              onDragOver={e=>{e.preventDefault(); setOverDate(ds);}}
+              onDragLeave={()=>setOverDate(null)}
+              onDrop={e=>handleDrop(e,ds)}>
+              <div className="week-header" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,marginBottom:4}}>
+                <div className="week-day-head" style={{borderRight:"none",width:"100%",padding:4,fontSize:12}}>{DAYS_HE[date.getDay()]}</div>
+                <div className="week-time-label">{date.getDate()} {MONTHS_HE[date.getMonth()]}</div>
+              </div>
+              {visible.map(t=>{
+                const leaveType=leavingTasks[t.id];
+                return (
+                  <div key={t.id}
+                    className={"week-chip"+(draggingId===t.id?" dragging":"")+(selected.has(t.id)?" selected":"")+(leaveType?` leaving-${leaveType}`:"")}
+                    title={`${t.dueTime?fmtTime(t.dueTime)+" ":""}${t.title}`}
+                    draggable
+                    style={{background:PRIORITIES[t.priority].bg,color:PRIORITIES[t.priority].color,borderRightColor:getProjColor(t.projectId),opacity:t.done?0.5:1,cursor:selected.size>0?"pointer":"grab"}}
+                    onDragStart={e=>handleDragStart(e,t)}
+                    onDragEnd={handleDragEnd}
+                    onTouchStart={e=>handleTouchStart(e,t)}
+                    onTouchEnd={handleTouchEnd}
+                    onClick={e=>handleChipClick(e,t)}>
+                    {selected.has(t.id)&&<span style={{marginLeft:4,fontWeight:700}}>✓ </span>}
+                    {t.dueTime?`${fmtTime(t.dueTime)} `:""}{t.title}
+                  </div>
+                );
+              })}
+              {moreCount>0&&<div className="more-chip" onMouseEnter={e=>{ clearTimeout(moreHideTimer.current); setHoveredMore({rect:e.currentTarget.getBoundingClientRect(), items:dayTasks.slice(3)}); }} onMouseLeave={()=>{ moreHideTimer.current=setTimeout(()=>setHoveredMore(null),180); }}>{`+${moreCount} נוספות`}</div>}
+              {renderQuickAdd(ds)}
+              {showHint(ds,dayTasks.length>0)}
+            </div>
+          );
+        })}
+      </div>
+      {hoveredMore&&(
+        <div className="more-tooltip" style={{top:hoveredMore.rect.bottom + 2,left:Math.min(hoveredMore.rect.left,window.innerWidth - 300)}} onMouseEnter={()=>{ clearTimeout(moreHideTimer.current); }} onMouseLeave={()=>{ moreHideTimer.current=setTimeout(()=>setHoveredMore(null),180); }}>
+          {hoveredMore.items.map((t,i)=><div key={t.id||i} className="more-tooltip-item" onClick={()=>{ setHoveredMore(null); onEdit(t); }}>{t.dueTime?fmtTime(t.dueTime)+" ":""}{t.title}</div>)}
+        </div>
+      )}
+      {selected.size>0&&(
+        <div className="multiselect-bar">
+          <span className="ms-count">✓ {selected.size} משימות נבחרות</span>
+          <input type="date" value={overDate||""} onChange={e=>setOverDate(e.target.value)} title="בחר תאריך יעד"/>
+          <button className="ms-btn ms-apply" onClick={applyMultiselect} disabled={!overDate}>העבר</button>
+          <button className="ms-btn ms-cancel" onClick={()=>setSelected(new Set())}>ביטול</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ListView({tasks,doneTasks,showDone,setShowDone,filter,setFilter,sort,setSort,onEdit,onToggle,onPin,onDelete,getProjColor,getProjName,collapsedGroups,toggleGroup,projects,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
   const grouped = tasks.reduce((groups,t)=>{
     const key=t.projectId||"__no_project__";
