@@ -318,22 +318,28 @@ function TaskModal({task,projects,onSave,onDelete,onClose}){
   );
 }
 
-function TaskRow({task,onEdit,onToggle,onPin,onDelete,getProjColor,getProjName,leavingTasks={},onGlobalDragStart,onGlobalDragEnd}){
+function TaskRow({task,onEdit,onToggle,onPin,onDelete,getProjColor,getProjName,leavingTasks={},onGlobalDragStart,onGlobalDragEnd,onDragStartExtra,onDragEndExtra,onDragOver,onDragEnter,onDragLeave,onDrop,dragClassName,dragStyle}){
   const isOverdue=task.dueDate&&task.dueDate<today()&&!task.done;
   const isToday=task.dueDate===today()&&!task.done;
   const doneC=task.subtasks?.filter(s=>s.done).length||0;
   const totS=task.subtasks?.length||0;
   const leaveType=leavingTasks[task.id];
   return (
-    <div className={"task-item"+(task.done?" done-task":"")+(task.pinned?" pinned-task":"")+(leaveType?` leaving-${leaveType}`:"" )}
+    <div className={"task-item"+(task.done?" done-task":"")+(task.pinned?" pinned-task":"")+(leaveType?` leaving-${leaveType}`:"")+(dragClassName?` ${dragClassName}`:"")}
+      style={dragStyle}
       draggable={!task.done && !task.deleted}
       onDragStart={e=>{
         if(task.done||task.deleted) return;
         e.dataTransfer.setData("text/plain", JSON.stringify({ids:[task.id]}));
         e.dataTransfer.effectAllowed="move";
         onGlobalDragStart?.([task.id]);
+        onDragStartExtra?.(e,task);
       }}
-      onDragEnd={()=>onGlobalDragEnd?.()}
+      onDragEnd={e=>{ onDragEndExtra?.(e); onGlobalDragEnd?.(); }}
+      onDragOver={onDragOver}
+      onDragEnter={onDragEnter}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       onClick={()=>onEdit(task)}>
       <div className={"task-cb"+(task.done?" checked":"")} onClick={e=>{e.stopPropagation();onToggle(task.id);}}/>
       <div className="task-body">
@@ -431,10 +437,67 @@ function HistoryListView({tasks,getProjColor,getProjName,onRestore,onDeletePerma
   );
 }
 
-function TodayView({tasks,onEdit,onToggle,onPin,onDelete,getProjColor,getProjName,projects,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
+function TodayView({tasks,onEdit,onToggle,onPin,onDelete,onReorder,getProjColor,getProjName,projects,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
   const [activeDate,setActiveDate]=useState(today());
-  const displayedTasks = tasks.filter(t=>!t.done&&t.dueDate===activeDate);
+  const [draggingId,setDraggingId]=useState(null);
+  const [dragOver,setDragOver]=useState({taskId:null,position:"after"});
+  const [hoveringEmpty,setHoveringEmpty]=useState(false);
+  const displayedTasks = tasks.filter(t=>!t.done&&t.dueDate===activeDate).sort((a,b)=>{
+    const ao=typeof a.order==='number'?a.order:9999;
+    const bo=typeof b.order==='number'?b.order:9999;
+    if(ao!==bo) return ao-bo;
+    return (a.dueTime||"9999")>(b.dueTime||"9999")?1:-1;
+  });
   const formattedDate = new Intl.DateTimeFormat('he',{weekday:'long', day:'numeric', month:'long'}).format(parseDate(activeDate));
+  const parseDragData = e=>{
+    try{ const raw = e.dataTransfer.getData("text/plain"); return raw?JSON.parse(raw):null; }catch{return null;}
+  };
+  const handleDragStart = (e,t)=>{ setDraggingId(t.id); setDragOver({taskId:t.id,position:"after"}); };
+  const handleDragEnd = ()=>{ setDraggingId(null); setDragOver({taskId:null,position:"after"}); setHoveringEmpty(false); onGlobalDragEnd?.(); };
+  const getDropPosition = (e, target)=>{
+    const rect = target.getBoundingClientRect();
+    return e.clientY - rect.top < rect.height / 2 ? "before" : "after";
+  };
+  const handleTaskDragOver = (e,t)=>{
+    e.preventDefault(); if(draggingId===t.id) return;
+    const pos = getDropPosition(e, e.currentTarget);
+    if(dragOver.taskId!==t.id || dragOver.position!==pos) setDragOver({taskId:t.id,position:pos});
+    setHoveringEmpty(false);
+  };
+  const handleTaskDrop = (e,t)=>{
+    e.preventDefault();
+    e.stopPropagation();
+    const data = parseDragData(e); if(!data||!data.ids?.length) return;
+    const draggedId = data.ids[0]; if(draggedId===t.id) return;
+    const position = getDropPosition(e, e.currentTarget);
+    onReorder(draggedId,t.id,position,activeDate);
+    handleDragEnd();
+  };
+  const handleListDragOver = e=>{
+    e.preventDefault();
+    if(e.target!==e.currentTarget) return;
+    if(displayedTasks.length===0){
+      if(dragOver.taskId!==null || dragOver.position!=="end") setDragOver({taskId:null,position:"end"});
+      setHoveringEmpty(true);
+      return;
+    }
+    const lastTask = e.currentTarget.lastElementChild;
+    if(lastTask){
+      const lastRect = lastTask.getBoundingClientRect();
+      if(e.clientY > lastRect.bottom){
+        if(dragOver.taskId!==null || dragOver.position!=="end") setDragOver({taskId:null,position:"end"});
+        setHoveringEmpty(true);
+      }
+    }
+  };
+  const handleListDrop = e=>{
+    e.preventDefault();
+    if(e.target!==e.currentTarget) return;
+    const data=parseDragData(e); if(!data||!data.ids?.length) return;
+    onReorder(data.ids[0],null,"end",activeDate);
+    handleDragEnd();
+  };
+
   return (
     <div>
       <div className="week-nav" style={{marginBottom:16}}>
@@ -444,41 +507,27 @@ function TodayView({tasks,onEdit,onToggle,onPin,onDelete,getProjColor,getProjNam
         <h3>{formattedDate}</h3>
       </div>
 
-      {displayedTasks.length===0 ? (
-        <div className="empty"><div className="emoji">☀️</div><p>אין משימות ליום זה</p></div>
-      ) : (()=>{
-        const grouped = displayedTasks.reduce((groups,t)=>{
-          const key=t.projectId||"__no_project__";
-          if(!groups[key]) groups[key]=[];
-          groups[key].push(t);
-          return groups;
-        },{});
-        return Object.entries(grouped).map(([projId,projTasks])=>{
-          const proj=projects.find(p=>p.id===projId) || {id:projId,name:"ללא פרויקט",color:"#999",emoji:"❔"};
+      <div className={"today-list"+(hoveringEmpty?" drag-over":"")} onDragOver={handleListDragOver} onDragLeave={()=>setHoveringEmpty(false)} onDrop={handleListDrop}>
+        {displayedTasks.length===0 ? (
+          <div className="empty"><div className="emoji">☀️</div><p>אין משימות ליום זה</p></div>
+        ) : displayedTasks.map(t=>{
+          const isActiveDrop = dragOver.taskId===t.id;
+          const dragClass = isActiveDrop ? (dragOver.position==="before"?"drag-over-before":"drag-over-after") : "";
           return (
-            <div key={projId} style={{marginBottom:20}}>
-              <div className="group-header">
-                <span style={{width:10,height:10,borderRadius:"50%",background:proj.color,display:"inline-block",flexShrink:0}}/>
-                <h3>{proj.emoji} {proj.name}</h3>
-                <span className="group-count">{projTasks.length} פתוחות</span>
-              </div>
-              {projTasks.map(t=><TaskRow key={t.id} task={t} onEdit={onEdit} onToggle={onToggle} onPin={onPin} onDelete={onDelete} getProjColor={getProjColor} getProjName={getProjName} leavingTasks={leavingTasks} onGlobalDragStart={onGlobalDragStart} onGlobalDragEnd={onGlobalDragEnd}/>)}
-            </div>
+            <TaskRow key={t.id} task={t} onEdit={onEdit} onToggle={onToggle} onPin={onPin} onDelete={onDelete} getProjColor={getProjColor} getProjName={getProjName} leavingTasks={leavingTasks} onGlobalDragStart={onGlobalDragStart} onGlobalDragEnd={onGlobalDragEnd} onDragStartExtra={handleDragStart} onDragEndExtra={handleDragEnd} onDragOver={e=>handleTaskDragOver(e,t)} onDragEnter={e=>handleTaskDragOver(e,t)} onDrop={e=>handleTaskDrop(e,t)} dragClassName={dragClass} dragStyle={draggingId===t.id?{opacity:0.45}:undefined} />
           );
-        });
-      })()}
+        })}
+      </div>
     </div>
   );
 }
-
-function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,onQuickAdd,getProjColor,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
+function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,onQuickAdd,onReorder,getProjColor,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
   const [draggingId,setDraggingId]=useState(null);
   const [overDate,setOverDate]=useState(null);
+  const [dragOverTask,setDragOverTask]=useState({taskId:null,position:"after"});
   const [selected,setSelected]=useState(new Set());
-  const [hoveredMore,setHoveredMore]=useState(null);
   const dragTask=useRef(null);
   const longPressTimer=useRef(null);
-  const moreHideTimer=useRef(null);
   const {addDate,handleCellClick,renderQuickAdd,showHint}=useDayQuickAdd(onQuickAdd);
   const weekDates=getWeekDates(offset);
   const todayStr=today();
@@ -489,25 +538,60 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
   const handleDragStart=(e,t)=>{ 
     dragTask.current=t; 
     setDraggingId(t.id); 
-    e.dataTransfer.setData("text/plain", JSON.stringify({ids:[t.id]})); 
+    e.dataTransfer.setData("text/plain", JSON.stringify({ids:selected.size>0 ? [...selected] : [t.id]})); 
     e.dataTransfer.effectAllowed="move"; 
-    onGlobalDragStart?.([t.id]);
+    onGlobalDragStart?.(selected.size>0 ? [...selected] : [t.id]);
   };
-  const handleDragEnd=()=>{ setDraggingId(null); setOverDate(null); dragTask.current=null; onGlobalDragEnd?.(); };
+  const handleDragEnd=()=>{ setDraggingId(null); setOverDate(null); setDragOverTask({taskId:null,position:"after"}); dragTask.current=null; onGlobalDragEnd?.(); };
   const handleDrop=(e,ds)=>{
     e.preventDefault();
+    if(!dragTask.current){
+      setOverDate(null);
+      return;
+    }
     if(selected.size>0){
       onRescheduleMany([...selected],ds);
       setSelected(new Set());
-    } else if(dragTask.current && dragTask.current.dueDate!==ds){
+    } else if(dragTask.current.dueDate===ds){
+      onReorder(dragTask.current.id,null,"end",ds);
+    } else if(dragTask.current.dueDate!==ds){
       onReschedule(dragTask.current.id,ds);
     }
     setOverDate(null);
+    setDragOverTask({taskId:null,position:"after"});
     setDraggingId(null);
     dragTask.current=null;
   };
   const handleTouchStart=(e,t)=>{ longPressTimer.current=setTimeout(()=>{ dragTask.current=t; setDraggingId(t.id); },500); };
   const handleTouchEnd=()=>{ clearTimeout(longPressTimer.current); };
+  const handleChipDragOver=(e,t,ds)=>{
+    e.preventDefault();
+    if(!dragTask.current || dragTask.current.id===t.id) return;
+    const rect=e.currentTarget.getBoundingClientRect();
+    const pos=e.clientY-rect.top < rect.height*0.45 ? "before" : "after";
+    if(dragOverTask.taskId!==t.id || dragOverTask.position!==pos) setDragOverTask({taskId:t.id,position:pos});
+  };
+  const handleChipLeave=()=>{ setDragOverTask({taskId:null,position:"after"}); };
+  const handleChipDrop=(e,t,ds)=>{
+    e.preventDefault();
+    if(!dragTask.current) return;
+    const draggedId = dragTask.current.id;
+    if(draggedId===t.id){
+      setDragOverTask({taskId:null,position:"after"});
+      return;
+    }
+    const position = dragOverTask.taskId===t.id ? dragOverTask.position : "after";
+    if(selected.size>0){
+      onRescheduleMany([...selected],ds);
+      setSelected(new Set());
+    } else {
+      onReorder(draggedId,t.id,position,ds);
+    }
+    setOverDate(null);
+    setDragOverTask({taskId:null,position:"after"});
+    setDraggingId(null);
+    dragTask.current=null;
+  };
   const handleChipClick=(e,t)=>{
     e.stopPropagation();
     if(e.ctrlKey||e.metaKey){
@@ -537,9 +621,13 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
         {weekDates.map(date=>{
           const ds=dateToStr(date);
           const isToday=ds===todayStr;
-          const dayTasks=tasks.filter(t=>t.dueDate===ds).sort((a,b)=>(a.dueTime||"")>(b.dueTime||"")?1:-1);
-          const visible=dayTasks.slice(0,3);
-          const moreCount=dayTasks.length-visible.length;
+          const dayTasks=tasks.filter(t=>t.dueDate===ds).sort((a,b)=>{
+            const ao=typeof a.order==='number'?a.order:9999;
+            const bo=typeof b.order==='number'?b.order:9999;
+            if(ao!==bo) return ao-bo;
+            return (a.dueTime||"")>(b.dueTime||"")?1:-1;
+          });
+          const visible=dayTasks;
           return (
             <div key={ds}
               className={"week-cell"+(isToday?" today-col":"")+(overDate===ds?" drag-over":"")+(addDate===ds?" add-active":"")}
@@ -553,13 +641,19 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
               </div>
               {visible.map(t=>{
                 const leaveType=leavingTasks[t.id];
+                const isTarget = dragOverTask.taskId===t.id;
+                const dropClass = isTarget ? (dragOverTask.position==="before" ? " drop-before" : " drop-after") : "";
                 return (
                   <div key={t.id}
-                    className={"week-chip"+(draggingId===t.id?" dragging":"")+(selected.has(t.id)?" selected":"")+(leaveType?` leaving-${leaveType}`:"")}
+                    className={"week-chip"+(draggingId===t.id?" dragging":"")+(selected.has(t.id)?" selected":"")+(leaveType?` leaving-${leaveType}`:"") + dropClass}
                     title={`${t.dueTime?fmtTime(t.dueTime)+" ":""}${t.title}`}
                     draggable
                     style={{background:PRIORITIES[t.priority].bg,color:PRIORITIES[t.priority].color,borderRightColor:getProjColor(t.projectId),opacity:t.done?0.5:1,cursor:selected.size>0?"pointer":"grab"}}
                     onDragStart={e=>handleDragStart(e,t)}
+                    onDragOver={e=>handleChipDragOver(e,t,ds)}
+                    onDragEnter={e=>handleChipDragOver(e,t,ds)}
+                    onDragLeave={handleChipLeave}
+                    onDrop={e=>handleChipDrop(e,t,ds)}
                     onDragEnd={handleDragEnd}
                     onTouchStart={e=>handleTouchStart(e,t)}
                     onTouchEnd={handleTouchEnd}
@@ -569,18 +663,12 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
                   </div>
                 );
               })}
-              {moreCount>0&&<div className="more-chip" onMouseEnter={e=>{ clearTimeout(moreHideTimer.current); setHoveredMore({rect:e.currentTarget.getBoundingClientRect(), items:dayTasks.slice(3)}); }} onMouseLeave={()=>{ moreHideTimer.current=setTimeout(()=>setHoveredMore(null),180); }}>{`+${moreCount} נוספות`}</div>}
               {renderQuickAdd(ds)}
               {showHint(ds,dayTasks.length>0)}
             </div>
           );
         })}
       </div>
-      {hoveredMore&&(
-        <div className="more-tooltip" style={{top:hoveredMore.rect.bottom + 2,left:Math.min(hoveredMore.rect.left,window.innerWidth - 300)}} onMouseEnter={()=>{ clearTimeout(moreHideTimer.current); }} onMouseLeave={()=>{ moreHideTimer.current=setTimeout(()=>setHoveredMore(null),180); }}>
-          {hoveredMore.items.map((t,i)=><div key={t.id||i} className="more-tooltip-item" onClick={()=>{ setHoveredMore(null); onEdit(t); }}>{t.dueTime?fmtTime(t.dueTime)+" ":""}{t.title}</div>)}
-        </div>
-      )}
       {selected.size>0&&(
         <div className="multiselect-bar">
           <span className="ms-count">✓ {selected.size} משימות נבחרות</span>
@@ -642,7 +730,64 @@ function ListView({tasks,doneTasks,showDone,setShowDone,filter,setFilter,sort,se
   );
 }
 
-function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onRescheduleMany,onQuickAdd,getProjColor,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
+function ProjectView({project,tasks,onEdit,onToggle,onPin,onDelete,getProjColor,leavingTasks,onGlobalDragStart,onGlobalDragEnd,onBack}){
+  const projectTasks = tasks.filter(t=>t.projectId===project.id);
+  const activeTasks = projectTasks.filter(t=>!t.done);
+  const doneTasks = projectTasks.filter(t=>t.done);
+  const todayCount = activeTasks.filter(t=>t.dueDate===today()).length;
+  const overdueCount = activeTasks.filter(t=>t.dueDate && t.dueDate<today()).length;
+
+  return (
+    <div className="project-view">
+      <div className="project-view-header">
+        <button type="button" className="project-back-btn" onClick={onBack}>← חזור לרשימה</button>
+        <div className="project-view-title">
+          <div className="project-pill" style={{background:project.color}}>{project.emoji}</div>
+          <div>
+            <h2>{project.name}</h2>
+            <p>{activeTasks.length} פתוחות · {doneTasks.length} הושלמו</p>
+          </div>
+        </div>
+      </div>
+      <div className="project-summary">
+        <div className="project-summary-card">
+          <span>פתוחות</span>
+          <strong>{activeTasks.length}</strong>
+        </div>
+        <div className="project-summary-card">
+          <span>היום</span>
+          <strong>{todayCount}</strong>
+        </div>
+        <div className="project-summary-card">
+          <span>באיחור</span>
+          <strong>{overdueCount}</strong>
+        </div>
+      </div>
+      <div className="project-section">
+        <div className="project-section-heading">
+          <h3>משימות הפרויקט</h3>
+          <span>{projectTasks.length} משימות</span>
+        </div>
+        {projectTasks.length===0 ? (
+          <div className="empty"><div className="emoji">📭</div><p>אין משימות בפרויקט זה.</p></div>
+        ) : (
+          projectTasks.map(t=><TaskRow key={t.id} task={t} onEdit={onEdit} onToggle={onToggle} onPin={onPin} onDelete={onDelete} getProjColor={getProjColor} getProjName={()=>project.name} leavingTasks={leavingTasks} onGlobalDragStart={onGlobalDragStart} onGlobalDragEnd={onGlobalDragEnd}/> )
+        )}
+      </div>
+      {doneTasks.length>0 && (
+        <div className="project-section">
+          <div className="project-section-heading">
+            <h3>הושלמו</h3>
+            <span>{doneTasks.length}</span>
+          </div>
+          {doneTasks.map(t=><TaskRow key={t.id} task={t} onEdit={onEdit} onToggle={onToggle} onPin={onPin} onDelete={onDelete} getProjColor={getProjColor} getProjName={()=>project.name} leavingTasks={leavingTasks} onGlobalDragStart={onGlobalDragStart} onGlobalDragEnd={onGlobalDragEnd}/>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onRescheduleMany,onQuickAdd,onReorder,getProjColor,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
   const {y,m}=monthDate;
   const cells=getMonthDates(y,m);
   const todayStr=today();
@@ -652,6 +797,7 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
   const longPressTimer=useRef(null);
   const [draggingId,setDraggingId]=useState(null);
   const [overDate,setOverDate]=useState(null);
+  const [dragOverTask,setDragOverTask]=useState({taskId:null,position:"after"});
   const [selected,setSelected]=useState(new Set());
   const [msDate,setMsDate]=useState("");
   const [hoveredMore,setHoveredMore]=useState(null);
@@ -662,23 +808,55 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
   const cancelHideMore=()=>{ clearTimeout(moreHideTimer.current); };
 
   const handleDragStart=(e,t)=>{ dragTask.current=t; setDraggingId(t.id); e.dataTransfer.setData("text/plain", JSON.stringify({ids:selected.size>0 ? [...selected] : [t.id]})); e.dataTransfer.effectAllowed="move"; onGlobalDragStart?.(selected.size>0 ? [...selected] : [t.id]); };
+  const handleTooltipDragStart=(e,t)=>{ cancelHideMore(); handleDragStart(e,t); };
   const handleDragEnd=()=>{
     const dropped=onGlobalDragEnd?.();
     if(dropped) setSelected(new Set());
-    setDraggingId(null); setOverDate(null); dragTask.current=null;
+    setDraggingId(null); setOverDate(null); setDragOverTask({taskId:null,position:"after"}); dragTask.current=null;
   };
   const handleDrop=(e,ds)=>{
     e.preventDefault();
+    if(!dragTask.current){
+      setOverDate(null);
+      return;
+    }
     if(selected.size>0){
       onRescheduleMany([...selected],ds);
       setSelected(new Set());
-    } else if(dragTask.current && dragTask.current.dueDate!==ds){
+    } else if(dragTask.current.dueDate===ds){
+      onReorder(dragTask.current.id,null,"end",ds);
+    } else if(dragTask.current.dueDate!==ds){
       onReschedule(dragTask.current.id,ds);
     }
-    setOverDate(null); setDraggingId(null); dragTask.current=null;
+    setOverDate(null); setDragOverTask({taskId:null,position:"after"}); setDraggingId(null); dragTask.current=null;
   };
   const handleTouchStart=(e,t)=>{ longPressTimer.current=setTimeout(()=>{ dragTask.current=t; setDraggingId(t.id); },500); };
   const handleTouchEnd=()=>{ clearTimeout(longPressTimer.current); };
+  const handleChipDragOver=(e,t,ds)=>{
+    e.preventDefault();
+    if(!dragTask.current || dragTask.current.id===t.id) return;
+    const rect=e.currentTarget.getBoundingClientRect();
+    const pos=e.clientY-rect.top < rect.height*0.45 ? "before" : "after";
+    if(dragOverTask.taskId!==t.id || dragOverTask.position!==pos) setDragOverTask({taskId:t.id,position:pos});
+  };
+  const handleChipLeave=()=>{ setDragOverTask({taskId:null,position:"after"}); };
+  const handleChipDrop=(e,t,ds)=>{
+    e.preventDefault();
+    if(!dragTask.current) return;
+    const draggedId = dragTask.current.id;
+    if(draggedId===t.id){
+      setDragOverTask({taskId:null,position:"after"});
+      return;
+    }
+    const position = dragOverTask.taskId===t.id ? dragOverTask.position : "after";
+    if(selected.size>0){
+      onRescheduleMany([...selected],ds);
+      setSelected(new Set());
+    } else {
+      onReorder(draggedId,t.id,position,ds);
+    }
+    setOverDate(null); setDragOverTask({taskId:null,position:"after"}); setDraggingId(null); dragTask.current=null;
+  };
   const handleChipClick=(e,t)=>{
     e.stopPropagation();
     if(e.ctrlKey||e.metaKey){
@@ -710,7 +888,12 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
         {cells.map((cell,i)=>{
           const ds=dateToStr(cell);
           const isOther=cell.getMonth()!==m, isToday=ds===todayStr;
-          const dayTasks=tasks.filter(t=>t.dueDate===ds).sort((a,b)=>(a.dueTime||"")>(b.dueTime||"")?1:-1);
+          const dayTasks=tasks.filter(t=>t.dueDate===ds).sort((a,b)=>{
+            const ao=typeof a.order==='number'?a.order:9999;
+            const bo=typeof b.order==='number'?b.order:9999;
+            if(ao!==bo) return ao-bo;
+            return (a.dueTime||"")>(b.dueTime||"")?1:-1;
+          });
           const show=dayTasks.slice(0,3);
           const more=dayTasks.length-show.length;
           return (
@@ -723,13 +906,19 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
               <div className="day-num">{cell.getDate()}</div>
               {show.map(t=>{
                 const leaveType=leavingTasks[t.id];
+                const isTarget = dragOverTask.taskId===t.id;
+                const dropClass = isTarget ? (dragOverTask.position==="before" ? " drop-before" : " drop-after") : "";
                 return (
                 <div key={t.id}
-                  className={"month-chip"+(draggingId===t.id?" dragging":"")+(selected.has(t.id)?" selected":"")+(leaveType?` leaving-${leaveType}`:"")}
+                  className={"month-chip"+(draggingId===t.id?" dragging":"")+(selected.has(t.id)?" selected":"")+(leaveType?` leaving-${leaveType}`:"") + dropClass}
                   title={`${t.dueTime?fmtTime(t.dueTime)+" ":""}${t.title}`}
                   draggable
                   style={{background:PRIORITIES[t.priority].bg,color:PRIORITIES[t.priority].color,borderRightColor:getProjColor(t.projectId),opacity:t.done?0.5:1,cursor:selected.size>0?"pointer":"grab"}}
                   onDragStart={e=>handleDragStart(e,t)}
+                  onDragOver={e=>handleChipDragOver(e,t,ds)}
+                  onDragEnter={e=>handleChipDragOver(e,t,ds)}
+                  onDragLeave={handleChipLeave}
+                  onDrop={e=>handleChipDrop(e,t,ds)}
                   onDragEnd={handleDragEnd}
                   onTouchStart={e=>handleTouchStart(e,t)}
                   onTouchEnd={handleTouchEnd}
@@ -748,7 +937,16 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
       </div>
       {hoveredMore&&(
         <div className="more-tooltip" style={{top:hoveredMore.rect.bottom + 2,left:Math.min(hoveredMore.rect.left,window.innerWidth - 300)}} onMouseEnter={cancelHideMore} onMouseLeave={hideMore}>
-          {hoveredMore.items.map((t,i)=><div key={t.id||i} className="more-tooltip-item" onClick={()=>{ cancelHideMore(); setHoveredMore(null); onEdit(t); }}>{t.dueTime?fmtTime(t.dueTime)+" ":""}{t.title}</div>)}
+          {hoveredMore.items.map((t,i)=>(
+            <div key={t.id||i}
+              className={"more-tooltip-item"+(draggingId===t.id?" dragging":"")}
+              draggable
+              onDragStart={e=>handleTooltipDragStart(e,t)}
+              onDragEnd={handleDragEnd}
+              onClick={()=>{ cancelHideMore(); setHoveredMore(null); onEdit(t); }}>
+              {t.dueTime?fmtTime(t.dueTime)+" ":""}{t.title}
+            </div>
+          ))}
         </div>
       )}
       {selected.size>0&&(

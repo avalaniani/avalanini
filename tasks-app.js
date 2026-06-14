@@ -5,17 +5,22 @@ function App(){
     try{
       const s=localStorage.getItem("tm_tasks"); 
       const data=s?JSON.parse(s):DEF_TASKS;
-      return data.map(t=>({
+      return data.map((t,i)=>({
         ...t,
         deleted: t.deleted??false,
         deletedAt: t.deletedAt??null,
-        deletedReason: t.deletedReason??null
+        deletedReason: t.deletedReason??null,
+        order: typeof t.order==='number' ? t.order : i
       }));
-    }catch{return DEF_TASKS;}
+    }catch{return DEF_TASKS.map((t,i)=>({
+      ...t,
+      order:i
+    }));}
   });
   const [projects,setProjects]=useState(()=>{ try{const s=localStorage.getItem("tm_projects"); return s?JSON.parse(s):DEF_PROJECTS;}catch{return DEF_PROJECTS;} });
   const [view,setView]=useState("home");
   const [sidebar,setSidebar]=useState("all");
+  const [currentProjectId,setCurrentProjectId]=useState(null);
   const [search,setSearch]=useState("");
   const [filter,setFilter]=useState("all");
   const [sort,setSort]=useState("priority");
@@ -224,14 +229,17 @@ function App(){
 
   const addTask=()=>{
     if(!newTask.title.trim()) return;
-    const t={id:uid(),title:newTask.title.trim(),priority:newTask.priority,projectId:newTask.projectId||projects[0]?.id,done:false,dueDate:newTask.dueDate||today(),dueTime:newTask.dueTime||"",reminder:null,snoozedUntil:null,notes:"",subtasks:[],createdAt:new Date().toISOString(),pinned:false,recur:newTask.recur||{type:"none"},deleted:false,deletedAt:null,deletedReason:null};
+    const dueDate = newTask.dueDate||today();
+    const order = getNextOrderForDate(dueDate,tasks);
+    const t={id:uid(),title:newTask.title.trim(),priority:newTask.priority,projectId:newTask.projectId||projects[0]?.id,done:false,dueDate, dueTime:newTask.dueTime||"",reminder:null,snoozedUntil:null,notes:"",subtasks:[],createdAt:new Date().toISOString(),pinned:false,recur:newTask.recur||{type:"none"},deleted:false,deletedAt:null,deletedReason:null,order};
     setTasks(p=>[t,...p]);
     setNewTask({title:"",priority:"medium",projectId:newTask.projectId,dueDate:"",dueTime:"",recur:{type:"none"}});
     inputRef.current?.focus();
   };
   const quickAddTask=(date,title)=>{
     if(!title.trim()) return;
-    const t={id:uid(),title:title.trim(),priority:newTask.priority,projectId:newTask.projectId||projects[0]?.id,done:false,dueDate:date,dueTime:"",reminder:null,snoozedUntil:null,notes:"",subtasks:[],createdAt:new Date().toISOString(),pinned:false,recur:{type:"none"},deleted:false,deletedAt:null,deletedReason:null};
+    const order = getNextOrderForDate(date,tasks);
+    const t={id:uid(),title:title.trim(),priority:newTask.priority,projectId:newTask.projectId||projects[0]?.id,done:false,dueDate:date,dueTime:"",reminder:null,snoozedUntil:null,notes:"",subtasks:[],createdAt:new Date().toISOString(),pinned:false,recur:{type:"none"},deleted:false,deletedAt:null,deletedReason:null,order};
     setTasks(p=>[t,...p]);
   };
   const toggleNewTaskDay=day=>setNewTask(p=>{
@@ -271,14 +279,52 @@ function App(){
     });
   };
   const restoreTask=id=>{setTasks(p=>p.map(t=>t.id===id?{...t,done:false,deleted:false,deletedAt:null,deletedReason:null}:t));};
-  const rescheduleTask=(id,newDate)=>{setTasks(p=>p.map(t=>t.id===id?{...t,dueDate:newDate}:t));};
-  const rescheduleManyTasks=(ids,newDate)=>{setTasks(p=>p.map(t=>ids.includes(t.id)?{...t,dueDate:newDate}:t));};
+  const getNextOrderForDate=(date,list)=>{
+    const existing = list.filter(t=>t.dueDate===date).map(t=>typeof t.order==='number'?t.order:0);
+    return existing.length ? Math.max(...existing)+1 : 0;
+  };
+  const rescheduleTask=(id,newDate)=>{setTasks(p=>{
+    const nextOrder = getNextOrderForDate(newDate,p);
+    return p.map(t=>t.id===id?{...t,dueDate:newDate,order:nextOrder}:t);
+  });};
+  const rescheduleManyTasks=(ids,newDate)=>{setTasks(p=>{
+    let nextOrder = getNextOrderForDate(newDate,p);
+    return p.map(t=>ids.includes(t.id)?{...t,dueDate:newDate,order:nextOrder++}:t);
+  });};
+  const reorderTasksInDate=(draggedId,targetId,position,date)=>{
+    setTasks(p=>{
+      const draggedTask = p.find(t=>t.id===draggedId);
+      if(!draggedTask) return p;
+      const dateGroup = p.filter(t=>t.dueDate===date).sort((a,b)=>{
+        const ao=typeof a.order==='number'?a.order:9999;
+        const bo=typeof b.order==='number'?b.order:9999;
+        if(ao!==bo) return ao-bo;
+        return (a.dueTime||"9999")>(b.dueTime||"9999")?1:-1;
+      });
+      const dragged = dateGroup.find(t=>t.id===draggedId);
+      const remaining = dateGroup.filter(t=>t.id!==draggedId);
+      let reordered;
+      const itemToInsert = dragged || draggedTask;
+      if(!targetId || position==="end"){
+        reordered = [...remaining,itemToInsert];
+      } else {
+        const targetIndex = remaining.findIndex(t=>t.id===targetId);
+        if(targetIndex<0) return p;
+        const insertAt = position==="after" ? targetIndex+1 : targetIndex;
+        reordered = [...remaining.slice(0,insertAt),itemToInsert,...remaining.slice(insertAt)];
+      }
+      const orderMap = Object.fromEntries(reordered.map((t,i)=>[t.id,i]));
+      return p.map(t=>{
+        if(t.id===draggedId) return {...t,dueDate:date,order:orderMap[draggedId]};
+        return t.dueDate===date ? {...t,order:orderMap[t.id]} : t;
+      });
+    });};
   const deletePermanent=ids=>{
     const keepIds=Array.isArray(ids)?ids:([ids].filter(Boolean));
     if(!keepIds.length) return;
     setTasks(p=>p.filter(t=>!keepIds.includes(t.id)));
   };
-  const saveTask  =upd=>{setTasks(p=>p.map(t=>t.id===upd.id?upd:t));setEditTask(null);};
+  const saveTask  =upd=>{setTasks(p=>p.map(t=>t.id===upd.id?{...upd,order:upd.dueDate===t.dueDate ? (typeof t.order==='number'?t.order:0) : getNextOrderForDate(upd.dueDate,p)}:t));setEditTask(null);};
   const snoozeTask=(task,opt)=>{
     let until;
     if(opt.special==="tomorrow9am"){const d=new Date();d.setDate(d.getDate()+1);d.setHours(9,0,0,0);until=d.toISOString();}
@@ -308,6 +354,7 @@ function App(){
       setTasks(old=>old.map(t=>t.projectId===id?{...t,projectId:targetId}:t));
     }
     if(sidebar===`p:${id}`) setSidebar("all");
+    if(currentProjectId===id){ setCurrentProjectId(null); setView("list"); }
   };
 
   const parseDragIds=e=>{
@@ -369,6 +416,7 @@ function App(){
 
   const getProjColor=id=>projects.find(p=>p.id===id)?.color||"#999";
   const getProjName =id=>projects.find(p=>p.id===id)?.name||"לא שויכה";
+  const currentProject = projects.find(p=>p.id===currentProjectId) || null;
 
   const allFiltered=tasks.filter(t=>{
     if(t.deleted) return false;
@@ -483,7 +531,7 @@ function App(){
         <div className="sidebar-section">
           <div className="sidebar-section-title">פרויקטים</div>
           {projects.map(p=>(
-            <div key={p.id} className={"sidebar-item"+(sidebar===`p:${p.id}`?" active":"")+(overProjectId===p.id?" drag-over":"")} onClick={()=>setSidebar(prev=>prev===`p:${p.id}`?"all":`p:${p.id}`)} onDragOver={e=>handleProjectDragOver(e,p.id)} onDragLeave={handleProjectDragLeave} onDrop={e=>handleProjectDrop(e,p.id)}>
+            <div key={p.id} className={"sidebar-item"+((sidebar===`p:${p.id}`|| (view==="project"&&currentProjectId===p.id))?" active":"")+(overProjectId===p.id?" drag-over":"")} onClick={()=>{ setSidebar("all"); setCurrentProjectId(p.id); setView("project"); }} onDragOver={e=>handleProjectDragOver(e,p.id)} onDragLeave={handleProjectDragLeave} onDrop={e=>handleProjectDrop(e,p.id)}>
               <span className="project-dot" style={{background:p.color}}/>
               <span style={{flex:1}}>{p.emoji} {p.name}</span>
               <span className="group-count">{tasks.filter(t=>t.projectId===p.id&&!t.done).length}</span>
@@ -536,10 +584,12 @@ function App(){
           )}
           {view==="home"&&<HeroView newTask={newTask} setNewTask={setNewTask} addTask={addTask}/>} 
           {view==="list"&&<ListView tasks={activeTasks} doneTasks={doneTasks} showDone={showDone} setShowDone={setShowDone} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onEdit={setEditTask} onToggle={toggleDone} onPin={togglePin} onDelete={deleteTask} getProjColor={getProjColor} getProjName={getProjName} collapsedGroups={collapsed} toggleGroup={k=>setCollapsed(p=>({...p,[k]:!p[k]}))} projects={projects} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
-          {view==="today"&&<TodayView tasks={tasks.filter(t=>!t.deleted)} onEdit={setEditTask} onToggle={toggleDone} onPin={togglePin} onDelete={deleteTask} getProjColor={getProjColor} getProjName={getProjName} projects={projects} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
+          {view==="today"&&<TodayView tasks={tasks.filter(t=>!t.deleted)} onEdit={setEditTask} onToggle={toggleDone} onPin={togglePin} onDelete={deleteTask} onReorder={reorderTasksInDate} getProjColor={getProjColor} getProjName={getProjName} projects={projects} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
           {view==="history"&&<HistoryListView tasks={tasks.filter(t=>t.deleted||t.deletedReason==="completed")} getProjColor={getProjColor} getProjName={getProjName} onRestore={restoreTask} onDeletePermanent={deletePermanent} projects={projects}/>} 
-          {view==="week"&&<WeekView tasks={tasks.filter(t=>!t.deleted && !t.done)} offset={weekOffset} setOffset={setWeekOffset} onEdit={setEditTask} onReschedule={rescheduleTask} onRescheduleMany={rescheduleManyTasks} onQuickAdd={quickAddTask} getProjColor={getProjColor} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
-          {view==="month"&&<MonthView tasks={tasks.filter(t=>!t.deleted && !t.done)} monthDate={monthDate} setMonthDate={setMonthDate} onEdit={setEditTask} onReschedule={rescheduleTask} onRescheduleMany={rescheduleManyTasks} onQuickAdd={quickAddTask} getProjColor={getProjColor} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
+          {view==="project"&&currentProject&&<ProjectView project={currentProject} tasks={tasks.filter(t=>!t.deleted)} onEdit={setEditTask} onToggle={toggleDone} onPin={togglePin} onDelete={deleteTask} getProjColor={getProjColor} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal} onBack={()=>{setCurrentProjectId(null); setView("list"); setSidebar("all");}}/>}
+          {view==="project"&&!currentProject&&<div className="empty"><div className="emoji">⚠️</div><p>הפרויקט לא נמצא.</p></div>}
+          {view==="week"&&<WeekView tasks={tasks.filter(t=>!t.deleted && !t.done)} offset={weekOffset} setOffset={setWeekOffset} onEdit={setEditTask} onReschedule={rescheduleTask} onRescheduleMany={rescheduleManyTasks} onQuickAdd={quickAddTask} onReorder={reorderTasksInDate} getProjColor={getProjColor} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
+          {view==="month"&&<MonthView tasks={tasks.filter(t=>!t.deleted && !t.done)} monthDate={monthDate} setMonthDate={setMonthDate} onEdit={setEditTask} onReschedule={rescheduleTask} onRescheduleMany={rescheduleManyTasks} onQuickAdd={quickAddTask} onReorder={reorderTasksInDate} getProjColor={getProjColor} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
           {view==="settings"&&(
             <div style={{maxWidth:760,margin:"20px auto",background:"var(--surface)",padding:20,borderRadius:12,boxShadow:"var(--shadow)"}}>
               <h3 style={{marginBottom:12}}>הגדרות — ייבוא / ייצוא Excel</h3>
