@@ -1,13 +1,27 @@
 const { useState, useEffect, useLayoutEffect, useRef } = React;
 
-function TimeInput24({value,onChange,className,selectClassName,id,title,style}){
+function TimeInput24({value,onChange,className,selectClassName,id,title,style,inline}){
   const [open,setOpen]=useState(false);
   const wrapRef=useRef(null);
   const btnRef=useRef(null);
   const panelRef=useRef(null);
-  const [panelPos,setPanelPos]=useState({top:0,right:0});
+  // Use a ref (not state) for position to avoid triggering re-renders on scroll/resize
+  const posRef=useRef({top:-9999,right:0});
+  const [posVersion,setPosVersion]=useState(0);
   const normalized=normTime(value);
   const display=normalized||"--:--";
+  const valueRef=useRef(normalized);
+  valueRef.current=normalized;
+  const repeatTimerRef=useRef(null);
+  const repeatDelayRef=useRef(400);
+  const timeRowFor=time=>{
+    const n=normTime(time);
+    if(!n) return "";
+    const [h,m]=n.split(":").map(Number);
+    const m15=Math.floor(m/15)*15;
+    return `${String(h).padStart(2,"0")}:${String(m15).padStart(2,"0")}`;
+  };
+  const rowActive=t=>normalized===t||(!!normalized&&timeRowFor(normalized)===t);
   const shiftTime=(base,delta)=>{
     const t=normTime(base)||"00:00";
     const [h,m]=t.split(":").map(Number);
@@ -15,53 +29,108 @@ function TimeInput24({value,onChange,className,selectClassName,id,title,style}){
     total=((total%1440)+1440)%1440;
     return `${String(Math.floor(total/60)).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;
   };
-  const updatePos=()=>{
+  const adjustPrecise=(delta,fallbackRowTime)=>{
+    const base=valueRef.current||normTime(fallbackRowTime)||"00:00";
+    const next=shiftTime(base,delta);
+    valueRef.current=next;
+    onChange(next);
+  };
+  const stopPreciseRepeat=()=>{
+    if(repeatTimerRef.current){
+      clearTimeout(repeatTimerRef.current);
+      repeatTimerRef.current=null;
+    }
+    repeatDelayRef.current=400;
+  };
+  const startPreciseRepeat=(delta,fallbackRowTime,e)=>{
+    e.stopPropagation();
+    e.preventDefault();
+    adjustPrecise(delta,fallbackRowTime);
+    repeatDelayRef.current=400;
+    const tick=()=>{
+      adjustPrecise(delta,fallbackRowTime);
+      repeatDelayRef.current=Math.max(60,Math.round(repeatDelayRef.current*0.82));
+      repeatTimerRef.current=setTimeout(tick,repeatDelayRef.current);
+    };
+    repeatTimerRef.current=setTimeout(tick,400);
+  };
+  useEffect(()=>()=>stopPreciseRepeat(),[]);
+  const closePanel=()=>{ if(!inline) setOpen(false); };
+  const pick=t=>{ onChange(t); closePanel(); };
+  // Calculate position directly from DOM — always read fresh rect
+  const calcPos=()=>{
     if(!btnRef.current) return;
     const r=btnRef.current.getBoundingClientRect();
-    setPanelPos({top:r.bottom+4, right:window.innerWidth-r.right});
+    posRef.current={top:r.bottom+4, right:window.innerWidth-r.right};
+  };
+  const handleToggle=()=>{
+    if(open){ setOpen(false); return; }
+    // Calculate position BEFORE opening so panel appears correctly on first paint
+    calcPos();
+    setOpen(true);
   };
   useEffect(()=>{
-    if(!open) return;
-    updatePos();
-    const close=e=>{ if(wrapRef.current&&!wrapRef.current.contains(e.target)&&!panelRef.current?.contains(e.target)) setOpen(false); };
+    if(inline||!open) return;
+    const onResize=()=>{ calcPos(); setPosVersion(v=>v+1); };
+    const close=e=>{
+      if(wrapRef.current&&!wrapRef.current.contains(e.target)&&!panelRef.current?.contains(e.target))
+        setOpen(false);
+    };
     document.addEventListener("mousedown",close);
-    window.addEventListener("resize",updatePos);
-    window.addEventListener("scroll",updatePos,true);
+    window.addEventListener("resize",onResize);
+    window.addEventListener("scroll",onResize,true);
     return ()=>{
       document.removeEventListener("mousedown",close);
-      window.removeEventListener("resize",updatePos);
-      window.removeEventListener("scroll",updatePos,true);
+      window.removeEventListener("resize",onResize);
+      window.removeEventListener("scroll",onResize,true);
     };
-  },[open]);
+  },[open,inline]);
   useEffect(()=>{
-    if(!open||!panelRef.current) return;
+    if((!inline&&!open)||!panelRef.current) return;
     const sel=panelRef.current.querySelector(".time-input-24-opt.sel");
     if(sel) sel.scrollIntoView({block:"nearest"});
-  },[open,normalized]);
+  },[open,normalized,inline]);
+  const {top,right}=posRef.current;
+  const panelEl=(
+    <div ref={panelRef} className={"time-input-24-panel"+(inline?" time-input-24-panel-inline":"")} role="listbox" aria-label="בורר זמן"
+      style={inline?undefined:{position:"fixed",top,right,left:"auto",zIndex:9100}}>
+      <div className="time-input-24-scroll">
+        <button type="button" role="option" className={"time-input-24-opt clear"+(!normalized?" sel":"")} onClick={()=>{onChange("");closePanel();}}>ללא שעה</button>
+        {TIMES_15.map(t=>(
+          <div key={t} role="option" aria-selected={rowActive(t)} className={"time-input-24-opt"+(rowActive(t)?" sel":"")} tabIndex={0}
+            onClick={e=>{ if(!e.target.closest(".time-input-24-precise-btn")) pick(t); }}
+            onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); pick(t); } }}>
+            <span className="time-input-24-opt-label">{t}</span>
+            <span className="time-input-24-precise">
+              <button type="button" className="time-input-24-precise-btn left"
+                onMouseDown={e=>startPreciseRepeat(-1,t,e)} onMouseUp={stopPreciseRepeat} onMouseLeave={stopPreciseRepeat}
+                onTouchStart={e=>startPreciseRepeat(-1,t,e)} onTouchEnd={stopPreciseRepeat} onTouchCancel={stopPreciseRepeat}
+                onClick={e=>e.stopPropagation()}>−</button>
+              <button type="button" className="time-input-24-precise-btn right"
+                onMouseDown={e=>startPreciseRepeat(1,t,e)} onMouseUp={stopPreciseRepeat} onMouseLeave={stopPreciseRepeat}
+                onTouchStart={e=>startPreciseRepeat(1,t,e)} onTouchEnd={stopPreciseRepeat} onTouchCancel={stopPreciseRepeat}
+                onClick={e=>e.stopPropagation()}>+</button>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+  if(inline){
+    return(
+      <div ref={wrapRef} className={"time-input-24 time-input-24-inline"+(className?" "+className:"")} id={id} title={title} style={style}>
+        {panelEl}
+      </div>
+    );
+  }
   return(
-    <div ref={wrapRef} className={"time-input-24"+(className?" "+className:"" )} id={id} title={title} style={style}>
+    <div ref={wrapRef} className={"time-input-24"+(className?" "+className:"")} id={id} title={title} style={style}>
       <button ref={btnRef} type="button" className={"time-input-24-btn"+(selectClassName?" "+selectClassName:""
-        )+(open?" open":"")} onClick={()=>setOpen(o=>!o)} aria-label="בחירת שעה" aria-expanded={open} aria-haspopup="listbox">
+        )+(open?" open":"")} onClick={handleToggle} aria-label="בחירת שעה" aria-expanded={open} aria-haspopup="listbox">
         <span>{display}</span>
         <span className="time-input-24-chevron" aria-hidden="true">▾</span>
       </button>
-      {open&&(
-        <div ref={panelRef} className="time-input-24-panel" role="listbox" aria-label="בורר זמן"
-          style={{position:"fixed",top:panelPos.top,right:panelPos.right,left:"auto",zIndex:9100}}>
-          <div className="time-input-24-scroll">
-            <button type="button" role="option" className={"time-input-24-opt clear"+(!normalized?" sel":"")} onClick={()=>{onChange("");setOpen(false);}}>ללא שעה</button>
-            {TIMES_15.map(t=>(
-              <div key={t} role="option" aria-selected={normalized===t} className={"time-input-24-opt"+(normalized===t?" sel":"")} tabIndex={0} onClick={()=>{onChange(t);setOpen(false);}} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onChange(t); setOpen(false); } }}>
-                <span>{t}</span>
-                <span className="time-input-24-precise">
-                  <button type="button" className="time-input-24-precise-btn left" onClick={e=>{e.stopPropagation(); onChange(shiftTime(t,-1));}}>−</button>
-                  <button type="button" className="time-input-24-precise-btn right" onClick={e=>{e.stopPropagation(); onChange(shiftTime(t,1));}}>+</button>
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {open&&panelEl}
     </div>
   );
 }
@@ -1117,8 +1186,8 @@ function HeroView({newTask,setNewTask,addTask,projects}){
               <div className="hero-chip-row">
                 <button type="button" className={"hero-chip"+(openHeroChip==="time"?" selected":"")} onClick={()=>toggleHeroChip("time")}>{selectedTime}</button>
                 {openHeroChip==="time"&&(
-                  <div className="hero-chip-dropdown">
-                    <TimeInput24 className="hero-chip-time" selectClassName="hero-chip-time-btn" value={newTask.dueTime||""} onChange={v=>updateTask("dueTime",v)} title="שעת יעד" />
+                  <div className="hero-chip-dropdown hero-chip-dropdown--time">
+                    <TimeInput24 className="hero-chip-time" value={newTask.dueTime||""} onChange={v=>updateTask("dueTime",v)} title="שעת יעד" inline />
                   </div>
                 )}
               </div>
