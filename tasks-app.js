@@ -37,7 +37,7 @@ function App(){
   const externalDropRef=useRef(false);
   const [overHistory,setOverHistory]=useState(false);
   const [overProjectId,setOverProjectId]=useState(null);
-  const [notif,clearNotif]=useReminders(tasks);
+  const [notif,clearNotif,requestNotifPermission]=useReminders(tasks);
   const inputRef=useRef();
 
   const [toast,setToast]=useState(null);
@@ -336,7 +336,7 @@ function App(){
     if(opt.special==="tomorrow9am"){const d=new Date();d.setDate(d.getDate()+1);d.setHours(9,0,0,0);until=d.toISOString();}
     else{const d=new Date();d.setMinutes(d.getMinutes()+opt.mins);until=d.toISOString();}
     setTasks(p=>p.map(t=>t.id===task.id?{...t,snoozedUntil:until}:t));
-    clearNotif();
+    clearNotif(true);
   };
   const addProject=proj=>{ setProjects(p=>[...p,proj]); setShowProjModal(false); };
   const updateProject=proj=>{ setProjects(p=>p.map(x=>x.id===proj.id?proj:x)); setEditProject(null); };
@@ -608,6 +608,16 @@ function App(){
                 <input ref={excelImportRef} type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={importExcel}/>
               </div>
               <p style={{color:"var(--text2)",marginTop:12}}>ייבוא יחליף את כל הנתונים הקיימים. מומלץ לבצע גיבוי קודם.</p>
+              <div style={{marginTop:20,paddingTop:16,borderTop:"1px solid var(--border)"}}>
+                <h4 style={{marginBottom:8}}>התראות תזכורת</h4>
+                <p style={{color:"var(--text2)",marginBottom:10,fontSize:14}}>כדי לקבל התראות גם כשהדפדפן ברקע, יש לאשר התראות מהדפדפן.</p>
+                <button className="tb-btn" onClick={()=>{
+                  requestNotifPermission().then(p=>{
+                    if(p==="granted") showToast("התראות הדפדפן הופעלו");
+                    else if(p==="denied") showToast("התראות נחסמו — אפשר לאפשר בהגדרות הדפדפן");
+                  });
+                }}>🔔 אפשר התראות דפדפן</button>
+              </div>
             </div>
           )}
         </div>

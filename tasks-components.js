@@ -119,6 +119,7 @@ function TaskModal({task,projects,onSave,onDelete,onClose}){
     return ()=>document.removeEventListener("keydown",onKey);
   },[onClose]);
   useEffect(()=>{resizeTitle();},[t.title]);
+  useEffect(()=>{ if(t.reminder) requestNotifPermission(); },[t.reminder]);
   useEffect(()=>{
     if(!openChip) return;
     const close=e=>{if(chipsRef.current&&!chipsRef.current.contains(e.target))setOpenChip(null);};
@@ -542,7 +543,11 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
     e.dataTransfer.effectAllowed="move"; 
     onGlobalDragStart?.(selected.size>0 ? [...selected] : [t.id]);
   };
-  const handleDragEnd=()=>{ setDraggingId(null); setOverDate(null); setDragOverTask({taskId:null,position:"after"}); dragTask.current=null; onGlobalDragEnd?.(); };
+  const handleDragEnd=()=>{
+    const dropped=onGlobalDragEnd?.();
+    if(dropped) setSelected(new Set());
+    setDraggingId(null); setOverDate(null); setDragOverTask({taskId:null,position:"after"}); dragTask.current=null;
+  };
   const handleDrop=(e,ds)=>{
     e.preventDefault();
     if(!dragTask.current){
@@ -642,9 +647,9 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
               onDragOver={e=>{e.preventDefault(); setOverDate(ds);}}
               onDragLeave={()=>setOverDate(null)}
               onDrop={e=>handleDrop(e,ds)}>
-              <div className="week-header" style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,marginBottom:4}}>
-                <div className="week-day-head" style={{borderRight:"none",width:"100%",padding:4,fontSize:12}}>{DAYS_HE[date.getDay()]}</div>
-                <div className="week-time-label">{date.getDate()} {MONTHS_HE[date.getMonth()]}</div>
+              <div className={"week-header"+(isToday?" today-col":"")} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2,marginBottom:4}}>
+                <div className={"week-day-head"+(isToday?" today-col":"")} style={{borderRight:"none",width:"100%",padding:4,fontSize:12}}>{DAYS_HE[date.getDay()]}</div>
+                <div className={"week-time-label"+(isToday?" today-col":"")}>{date.getDate()} {MONTHS_HE[date.getMonth()]}</div>
               </div>
               {visible.map(t=>{
                 const leaveType=leavingTasks[t.id];

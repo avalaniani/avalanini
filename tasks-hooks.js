@@ -1,21 +1,61 @@
 const { useState, useEffect, useRef } = React;
 
+function requestNotifPermission(){
+  if(typeof Notification==="undefined") return Promise.resolve("denied");
+  if(Notification.permission!=="default") return Promise.resolve(Notification.permission);
+  return Notification.requestPermission();
+}
+
+function showBrowserNotif(task){
+  if(typeof Notification==="undefined"||Notification.permission!=="granted") return;
+  try{
+    const n=new Notification(`⏰ ${task.title}`,{
+      body:"הגיע זמן התזכורת למשימה",
+      tag:`reminder-${task.id}`,
+      renotify:true,
+    });
+    n.onclick=()=>{ window.focus(); n.close(); };
+  }catch{}
+}
+
 function useReminders(tasks) {
   const [active,setActive] = useState(null);
+  const notifiedRef=useRef(new Set());
   useEffect(()=>{
     const check=()=>{
       const n=new Date();
       for(const t of tasks){
         if(t.done) continue;
         if(t.snoozedUntil && new Date(t.snoozedUntil)>n) continue;
-        if(t.reminder){ const rt=new Date(t.reminder); if(rt<=n && rt> new Date(n.getTime()-60000)){ setActive(t); return; } }
+        if(t.reminder){
+          const rt=new Date(t.reminder);
+          const key=`${t.id}:${t.reminder}`;
+          if(rt<=n){
+            if(rt<=new Date(n.getTime()-60000)){
+              notifiedRef.current.delete(key);
+              continue;
+            }
+            if(!notifiedRef.current.has(key)){
+              notifiedRef.current.add(key);
+              showBrowserNotif(t);
+            }
+            setActive(t);
+            return;
+          }
+          notifiedRef.current.delete(key);
+        }
       }
+      setActive(null);
     };
     const id=setInterval(check,15000);
     check();
     return ()=>clearInterval(id);
   },[tasks]);
-  return [active,()=>setActive(null)];
+  const clearNotif=(forget)=>{
+    if(forget&&active?.id&&active?.reminder) notifiedRef.current.delete(`${active.id}:${active.reminder}`);
+    setActive(null);
+  };
+  return [active,clearNotif,requestNotifPermission];
 }
 
 function useDayQuickAdd(onQuickAdd){
