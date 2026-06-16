@@ -5,6 +5,13 @@ function TimeInput24({value,onChange,className,selectClassName,id,title,style}){
   const wrapRef=useRef(null);
   const normalized=normTime(value);
   const display=normalized||"--:--";
+  const shiftTime=(base,delta)=>{
+    const t=normTime(base)||"00:00";
+    const [h,m]=t.split(":").map(Number);
+    let total=h*60+m+delta;
+    total=((total%1440)+1440)%1440;
+    return `${String(Math.floor(total/60)).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;
+  };
   useEffect(()=>{
     if(!open) return;
     const close=e=>{ if(wrapRef.current&&!wrapRef.current.contains(e.target)) setOpen(false); };
@@ -28,7 +35,13 @@ function TimeInput24({value,onChange,className,selectClassName,id,title,style}){
           <div className="time-input-24-scroll">
             <button type="button" role="option" className={"time-input-24-opt clear"+(!normalized?" sel":"")} onClick={()=>{onChange("");setOpen(false);}}>ללא שעה</button>
             {TIMES_15.map(t=>(
-              <button key={t} type="button" role="option" aria-selected={normalized===t} className={"time-input-24-opt"+(normalized===t?" sel":"")} onClick={()=>{onChange(t);setOpen(false);}}>{t}</button>
+              <div key={t} role="option" aria-selected={normalized===t} className={"time-input-24-opt"+(normalized===t?" sel":"")} tabIndex={0} onClick={()=>{onChange(t);setOpen(false);}} onKeyDown={e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); onChange(t); setOpen(false); } }}>
+                <span>{t}</span>
+                <span className="time-input-24-precise">
+                  <button type="button" className="time-input-24-precise-btn left" onClick={e=>{e.stopPropagation(); onChange(shiftTime(t,-1));}}>−</button>
+                  <button type="button" className="time-input-24-precise-btn right" onClick={e=>{e.stopPropagation(); onChange(shiftTime(t,1));}}>+</button>
+                </span>
+              </div>
             ))}
           </div>
         </div>
@@ -1007,19 +1020,72 @@ function NotifRing({task,onClose,onSnooze}){
   );
 }
 
-function HeroView({newTask,setNewTask,addTask}){
+function HeroView({newTask,setNewTask,addTask,projects}){
+  const [openChips,setOpenChips]=useState(false);
+  useEffect(()=>{
+    if(!openChips) return;
+    const close=e=>{ if(!e.target.closest('.hero-card')) setOpenChips(false); };
+    document.addEventListener('mousedown',close);
+    return ()=>document.removeEventListener('mousedown',close);
+  },[openChips]);
+  const updateTask=(key,value)=>setNewTask(p=>({...p,[key]:value}));
+  const selectRecur=type=>{
+    if(type==="custom"){
+      setNewTask(p=>({
+        ...p,
+        recur:{
+          ...p.recur,
+          type:"custom",
+          unit:p.recur?.unit||"week",
+          interval:p.recur?.interval||1,
+          days:p.recur?.days?.length?p.recur.days:[new Date().getDay()]
+        }
+      }));
+      return;
+    }
+    setNewTask(p=>({ ...p, recur:{...p.recur,type}}));
+  };
   return (
     <div className="hero">
       <div className="hero-inner">
         <div className="hero-title">במה נתחיל היום?</div>
         <div className="hero-card">
           <div className="hero-left">
-              <div className="hero-mic">🎤</div>
-            </div>
-          <input className="hero-input" placeholder="מה המשימה החדשה?" value={newTask.title} onChange={e=>setNewTask(p=>({...p,title:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addTask()} dir="rtl" />
+            <button type="button" className="hero-mic" onClick={()=>setOpenChips(o=>!o)} aria-expanded={openChips} aria-label="פתח תפריט בחירה">
+              <span className="hero-mic-icon" aria-hidden="true">🎯</span>
+            </button>
+          </div>
+          <input className="hero-input" placeholder="מה המשימה החדשה?" value={newTask.title} onChange={e=>updateTask("title",e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} dir="rtl" />
           <div className="hero-right">
             <div className="hero-plus" onClick={addTask}>＋</div>
           </div>
+          {openChips&&(
+            <div className="hero-chip-panel">
+              <div className="hero-chip-row">
+                <span className="hero-chip-label">עדיפות:</span>
+                {Object.entries(PRIORITIES).map(([k,v])=>(
+                  <button key={k} type="button" className={"hero-chip"+(newTask.priority===k?" selected":"")} style={newTask.priority===k?{background:v.bg,color:v.color}:undefined} onClick={()=>updateTask("priority",k)}>{v.label}</button>
+                ))}
+              </div>
+              <div className="hero-chip-row">
+                <span className="hero-chip-label">פרויקט:</span>
+                {(projects||[]).map(p=>(
+                  <button key={p.id} type="button" className={"hero-chip"+(newTask.projectId===p.id?" selected":"")} style={newTask.projectId===p.id?{borderColor:p.color}:undefined} onClick={()=>updateTask("projectId",p.id)}>{p.emoji} {p.name}</button>
+                ))}
+              </div>
+              <div className="hero-chip-row hero-chip-row--wrap">
+                <span className="hero-chip-label">תאריך ושעה:</span>
+                <input type="date" className="hero-chip-date" value={newTask.dueDate||""} onChange={e=>updateTask("dueDate",e.target.value)} />
+                <TimeInput24 className="hero-chip-time" selectClassName="hero-chip-time-btn" value={newTask.dueTime||""} onChange={v=>updateTask("dueTime",v)} title="שעת יעד" />
+              </div>
+              <div className="hero-chip-row">
+                <span className="hero-chip-label">חזרה:</span>
+                {RECUR_OPTIONS.map(o=>(
+                  <button key={o.key} type="button" className={"hero-chip"+(newTask.recur?.type===o.key?" selected":"")} onClick={()=>selectRecur(o.key)}>{o.icon?o.icon+" ":""}{o.label}</button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

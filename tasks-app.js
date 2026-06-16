@@ -588,7 +588,7 @@ function App(){
             )}
             </div>
           )}
-          {view==="home"&&<HeroView newTask={newTask} setNewTask={setNewTask} addTask={addTask}/>} 
+          {view==="home"&&<HeroView newTask={newTask} setNewTask={setNewTask} addTask={addTask} projects={projects}/>}
           {view==="list"&&<ListView tasks={activeTasks} doneTasks={doneTasks} showDone={showDone} setShowDone={setShowDone} filter={filter} setFilter={setFilter} sort={sort} setSort={setSort} onEdit={setEditTask} onToggle={toggleDone} onPin={togglePin} onDelete={deleteTask} getProjColor={getProjColor} getProjName={getProjName} collapsedGroups={collapsed} toggleGroup={k=>setCollapsed(p=>({...p,[k]:!p[k]}))} projects={projects} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
           {view==="today"&&<TodayView tasks={tasks.filter(t=>!t.deleted)} onEdit={setEditTask} onToggle={toggleDone} onPin={togglePin} onDelete={deleteTask} onReorder={reorderTasksInDate} getProjColor={getProjColor} getProjName={getProjName} projects={projects} leavingTasks={leavingTasks} onGlobalDragStart={handleDragStartGlobal} onGlobalDragEnd={handleDragEndGlobal}/>} 
           {view==="history"&&<HistoryListView tasks={tasks.filter(t=>t.deleted||t.deletedReason==="completed")} getProjColor={getProjColor} getProjName={getProjName} onRestore={restoreTask} onDeletePermanent={deletePermanent} projects={projects}/>} 
