@@ -1022,9 +1022,10 @@ function NotifRing({task,onClose,onSnooze}){
 
 function HeroView({newTask,setNewTask,addTask,projects}){
   const [openChips,setOpenChips]=useState(false);
+  const [openHeroChip,setOpenHeroChip]=useState(null);
   useEffect(()=>{
     if(!openChips) return;
-    const close=e=>{ if(!e.target.closest('.hero-card')) setOpenChips(false); };
+    const close=e=>{ if(!e.target.closest('.hero-card')){ setOpenChips(false); setOpenHeroChip(null); } };
     document.addEventListener('mousedown',close);
     return ()=>document.removeEventListener('mousedown',close);
   },[openChips]);
@@ -1045,6 +1046,14 @@ function HeroView({newTask,setNewTask,addTask,projects}){
     }
     setNewTask(p=>({ ...p, recur:{...p.recur,type}}));
   };
+  const toggleHeroChip=key=>setOpenHeroChip(p=>p===key?null:key);
+  const selectedPriority=PRIORITIES[newTask.priority||"medium"]?.label||"בינונית";
+  const selectedPriorityStyle=PRIORITIES[newTask.priority||"medium"]?{background:PRIORITIES[newTask.priority||"medium"].bg,color:PRIORITIES[newTask.priority||"medium"].color,borderColor:"transparent"}:undefined;
+  const selectedProject=(projects||[]).find(p=>p.id===newTask.projectId);
+  const selectedProjectLabel=selectedProject?`${selectedProject.emoji} ${selectedProject.name}`:"📁 פרויקט";
+  const selectedDate=newTask.dueDate?newTask.dueDate:"📅 תאריך";
+  const selectedTime=newTask.dueTime?newTask.dueTime:"🕐 שעה";
+  const selectedRecur=RECUR_OPTIONS.find(o=>o.key===newTask.recur?.type)?.label||"🔁 חזרה";
   return (
     <div className="hero">
       <div className="hero-inner">
@@ -1062,27 +1071,50 @@ function HeroView({newTask,setNewTask,addTask,projects}){
           {openChips&&(
             <div className="hero-chip-panel">
               <div className="hero-chip-row">
-                <span className="hero-chip-label">עדיפות:</span>
-                {Object.entries(PRIORITIES).map(([k,v])=>(
-                  <button key={k} type="button" className={"hero-chip"+(newTask.priority===k?" selected":"")} style={newTask.priority===k?{background:v.bg,color:v.color}:undefined} onClick={()=>updateTask("priority",k)}>{v.label}</button>
-                ))}
+                <button type="button" className={"hero-chip"+(openHeroChip==="priority"?" selected":"")} style={selectedPriorityStyle} onClick={()=>toggleHeroChip("priority")}>{selectedPriority}</button>
+                {openHeroChip==="priority"&&(
+                  <div className="hero-chip-dropdown">
+                    {Object.entries(PRIORITIES).map(([k,v])=>(
+                      <button key={k} type="button" className={"hero-chip"+(newTask.priority===k?" selected":"")} style={newTask.priority===k?{background:v.bg,color:v.color,borderColor:"transparent"}:undefined} onClick={()=>{updateTask("priority",k);setOpenHeroChip(null);}}>{v.label}</button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="hero-chip-row">
-                <span className="hero-chip-label">פרויקט:</span>
-                {(projects||[]).map(p=>(
-                  <button key={p.id} type="button" className={"hero-chip"+(newTask.projectId===p.id?" selected":"")} style={newTask.projectId===p.id?{borderColor:p.color}:undefined} onClick={()=>updateTask("projectId",p.id)}>{p.emoji} {p.name}</button>
-                ))}
-              </div>
-              <div className="hero-chip-row hero-chip-row--wrap">
-                <span className="hero-chip-label">תאריך ושעה:</span>
-                <input type="date" className="hero-chip-date" value={newTask.dueDate||""} onChange={e=>updateTask("dueDate",e.target.value)} />
-                <TimeInput24 className="hero-chip-time" selectClassName="hero-chip-time-btn" value={newTask.dueTime||""} onChange={v=>updateTask("dueTime",v)} title="שעת יעד" />
+                <button type="button" className={"hero-chip"+(openHeroChip==="project"?" selected":"")} onClick={()=>toggleHeroChip("project")}>{selectedProjectLabel}</button>
+                {openHeroChip==="project"&&(
+                  <div className="hero-chip-dropdown">
+                    {(projects||[]).slice(0,4).map(p=>(
+                      <button key={p.id} type="button" className={"hero-chip"+(newTask.projectId===p.id?" selected":"")} style={newTask.projectId===p.id?{borderColor:p.color}:undefined} onClick={()=>{updateTask("projectId",p.id);setOpenHeroChip(null);}}>{p.emoji} {p.name}</button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="hero-chip-row">
-                <span className="hero-chip-label">חזרה:</span>
-                {RECUR_OPTIONS.map(o=>(
-                  <button key={o.key} type="button" className={"hero-chip"+(newTask.recur?.type===o.key?" selected":"")} onClick={()=>selectRecur(o.key)}>{o.icon?o.icon+" ":""}{o.label}</button>
-                ))}
+                <button type="button" className={"hero-chip"+(openHeroChip==="date"?" selected":"")} onClick={()=>toggleHeroChip("date")}>{selectedDate}</button>
+                {openHeroChip==="date"&&(
+                  <div className="hero-chip-dropdown">
+                    <input type="date" className="hero-chip-date" value={newTask.dueDate||""} onChange={e=>updateTask("dueDate",e.target.value)} />
+                  </div>
+                )}
+              </div>
+              <div className="hero-chip-row">
+                <button type="button" className={"hero-chip"+(openHeroChip==="time"?" selected":"")} onClick={()=>toggleHeroChip("time")}>{selectedTime}</button>
+                {openHeroChip==="time"&&(
+                  <div className="hero-chip-dropdown">
+                    <TimeInput24 className="hero-chip-time" selectClassName="hero-chip-time-btn" value={newTask.dueTime||""} onChange={v=>updateTask("dueTime",v)} title="שעת יעד" />
+                  </div>
+                )}
+              </div>
+              <div className="hero-chip-row">
+                <button type="button" className={"hero-chip"+(openHeroChip==="recur"?" selected":"")} onClick={()=>toggleHeroChip("recur")}>{selectedRecur}</button>
+                {openHeroChip==="recur"&&(
+                  <div className="hero-chip-dropdown">
+                    {RECUR_OPTIONS.map(o=>(
+                      <button key={o.key} type="button" className={"hero-chip"+(newTask.recur?.type===o.key?" selected":"")} onClick={()=>{selectRecur(o.key);setOpenHeroChip(null);}}>{o.icon?o.icon+" ":""}{o.label}</button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
