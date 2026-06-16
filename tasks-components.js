@@ -3,6 +3,9 @@ const { useState, useEffect, useLayoutEffect, useRef } = React;
 function TimeInput24({value,onChange,className,selectClassName,id,title,style}){
   const [open,setOpen]=useState(false);
   const wrapRef=useRef(null);
+  const btnRef=useRef(null);
+  const panelRef=useRef(null);
+  const [panelPos,setPanelPos]=useState({top:0,right:0});
   const normalized=normTime(value);
   const display=normalized||"--:--";
   const shiftTime=(base,delta)=>{
@@ -12,26 +15,39 @@ function TimeInput24({value,onChange,className,selectClassName,id,title,style}){
     total=((total%1440)+1440)%1440;
     return `${String(Math.floor(total/60)).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;
   };
+  const updatePos=()=>{
+    if(!btnRef.current) return;
+    const r=btnRef.current.getBoundingClientRect();
+    setPanelPos({top:r.bottom+4, right:window.innerWidth-r.right});
+  };
   useEffect(()=>{
     if(!open) return;
-    const close=e=>{ if(wrapRef.current&&!wrapRef.current.contains(e.target)) setOpen(false); };
+    updatePos();
+    const close=e=>{ if(wrapRef.current&&!wrapRef.current.contains(e.target)&&!panelRef.current?.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown",close);
-    return ()=>document.removeEventListener("mousedown",close);
+    window.addEventListener("resize",updatePos);
+    window.addEventListener("scroll",updatePos,true);
+    return ()=>{
+      document.removeEventListener("mousedown",close);
+      window.removeEventListener("resize",updatePos);
+      window.removeEventListener("scroll",updatePos,true);
+    };
   },[open]);
   useEffect(()=>{
-    if(!open||!wrapRef.current) return;
-    const sel=wrapRef.current.querySelector(".time-input-24-opt.sel");
+    if(!open||!panelRef.current) return;
+    const sel=panelRef.current.querySelector(".time-input-24-opt.sel");
     if(sel) sel.scrollIntoView({block:"nearest"});
   },[open,normalized]);
   return(
     <div ref={wrapRef} className={"time-input-24"+(className?" "+className:"" )} id={id} title={title} style={style}>
-      <button type="button" className={"time-input-24-btn"+(selectClassName?" "+selectClassName:""
+      <button ref={btnRef} type="button" className={"time-input-24-btn"+(selectClassName?" "+selectClassName:""
         )+(open?" open":"")} onClick={()=>setOpen(o=>!o)} aria-label="בחירת שעה" aria-expanded={open} aria-haspopup="listbox">
         <span>{display}</span>
         <span className="time-input-24-chevron" aria-hidden="true">▾</span>
       </button>
       {open&&(
-        <div className="time-input-24-panel" role="listbox" aria-label="בורר זמן">
+        <div ref={panelRef} className="time-input-24-panel" role="listbox" aria-label="בורר זמן"
+          style={{position:"fixed",top:panelPos.top,right:panelPos.right,left:"auto",zIndex:9100}}>
           <div className="time-input-24-scroll">
             <button type="button" role="option" className={"time-input-24-opt clear"+(!normalized?" sel":"")} onClick={()=>{onChange("");setOpen(false);}}>ללא שעה</button>
             {TIMES_15.map(t=>(
