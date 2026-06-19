@@ -626,7 +626,6 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
   const [dragOverTask,setDragOverTask]=useState({taskId:null,position:"after"});
   const [selected,setSelected]=useState(new Set());
   const dragTask=useRef(null);
-  const monthWrapperRef = useRef(null);
   const longPressTimer=useRef(null);
   const {addDate,handleCellClick,renderQuickAdd,showHint}=useDayQuickAdd(onQuickAdd);
   const weekDates=getWeekDates(offset);
@@ -898,13 +897,57 @@ function ProjectView({project,tasks,onEdit,onToggle,onPin,onDelete,getProjColor,
   );
 }
 
+const DEFAULT_CELL_W = null; // null = CSS auto
+const DEFAULT_CELL_H = 110; // px, matches minmax(100px,auto)
+const CHIP_H = 22; // approximate px per chip row
+const CHIP_HEADER_H = 20; // px for day number
+
 function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onRescheduleMany,onQuickAdd,onReorder,getProjColor,leavingTasks,onGlobalDragStart,onGlobalDragEnd}){
   const {y,m}=monthDate;
   const cells=getMonthDates(y,m);
   const todayStr=today();
   const prev=()=>setMonthDate(d=>d.m===0?{y:d.y-1,m:11}:{y:d.y,m:d.m-1});
   const next=()=>setMonthDate(d=>d.m===11?{y:d.y+1,m:0}:{y:d.y,m:d.m+1});
-  const monthWrapperRef = useRef(null);
+  const dragTask=useRef(null);
+
+  // Resize state
+  const [cellSize, setCellSize] = useState({w: DEFAULT_CELL_W, h: DEFAULT_CELL_H});
+  const resizeStartRef = useRef(null);
+  const gridRef = useRef(null);
+
+  const handleResizeMouseDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      w: cellSize.w || (gridRef.current ? gridRef.current.offsetWidth / 7 : 120),
+      h: cellSize.h,
+    };
+    const onMove = (ev) => {
+      const dx = ev.clientX - resizeStartRef.current.x;
+      const dy = ev.clientY - resizeStartRef.current.y;
+      const newW = Math.max(60, resizeStartRef.current.w + dx);
+      const newH = Math.max(60, resizeStartRef.current.h + dy);
+      setCellSize({w: newW, h: newH});
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      resizeStartRef.current = null;
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
+  const handleResizeDblClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCellSize({w: DEFAULT_CELL_W, h: DEFAULT_CELL_H});
+  };
+
+  // Calculate how many chips fit in a cell
+  const maxVisible = Math.max(1, Math.floor((cellSize.h - CHIP_HEADER_H - 4) / CHIP_H));
   const longPressTimer=useRef(null);
   const [draggingId,setDraggingId]=useState(null);
   const [overDate,setOverDate]=useState(null);
@@ -990,6 +1033,12 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
     setSelected(new Set()); setMsDate("");
   };
 
+  const gridStyle = {
+    gridTemplateColumns: cellSize.w ? `repeat(7,${cellSize.w}px)` : 'repeat(7,1fr)',
+    gridAutoRows: `${cellSize.h}px`,
+  };
+  const headerStyle = cellSize.w ? {gridTemplateColumns:`repeat(7,${cellSize.w}px)`} : {};
+
   return (
     <div>
       <div className="week-nav">
@@ -999,11 +1048,10 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
         <h3 style={{fontSize:16,fontWeight:700}}>{MONTHS_HE[m]} {y}</h3>
         {selected.size>0&&<span style={{fontSize:12,color:"var(--accent)",fontWeight:600,marginRight:8}}>✓ {selected.size} נבחרו — גרור לתא יעד או בחר תאריך בתחתית</span>}
       </div>
-      <div className="month-table-wrapper" style={{resize:"both", overflow:"auto"}} ref={monthWrapperRef} onDoubleClick={e=>{ if(monthWrapperRef.current){ monthWrapperRef.current.style.width=''; monthWrapperRef.current.style.height=''; }}}>
-<div className="month-grid-header">
+      <div className="month-grid-header" style={headerStyle}>
         {DAYS_HE.map(d=><div key={d} className="month-day-head">{d}</div>)}
       </div>
-      <div className="month-grid-body">
+      <div ref={gridRef} className="month-grid-body" style={gridStyle}>
         {cells.map((cell,i)=>{
           const ds=dateToStr(cell);
           const isOther=cell.getMonth()!==m, isToday=ds===todayStr;
@@ -1013,7 +1061,7 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
             if(ao!==bo) return ao-bo;
             return (a.dueTime||"")>(b.dueTime||"")?1:-1;
           });
-          const show=dayTasks.slice(0,3);
+          const show=dayTasks.slice(0,maxVisible);
           const more=dayTasks.length-show.length;
           return (
             <div key={i}
@@ -1047,14 +1095,25 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
                 </div>
                 );
               })}
-              {more>0&&<div className="more-chip" onMouseEnter={e=>showMore(e,dayTasks.slice(3))} onMouseLeave={hideMore}>{`+${more} נוספות`}</div>}
+              {more>0&&<div className="more-chip" onMouseEnter={e=>showMore(e,dayTasks.slice(maxVisible))} onMouseLeave={hideMore}>{`+${more} נוספות`}</div>}
               {renderQuickAdd(ds)}
               {showHint(ds,dayTasks.length>0)}
             </div>
           );
         })}
       </div>
-</div>
+      <div className="month-resize-handle-wrap">
+        <div
+          className="month-resize-handle"
+          title="גרור לשינוי גודל • לחיצה כפולה לאיפוס"
+          onMouseDown={handleResizeMouseDown}
+          onDoubleClick={handleResizeDblClick}
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 12L12 2M6 12L12 6M10 12L12 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
+        </div>
+      </div>
       {hoveredMore&&(
         <div className="more-tooltip" style={{top:hoveredMore.rect.bottom + 2,left:Math.min(hoveredMore.rect.left,window.innerWidth - 300)}} onMouseEnter={cancelHideMore} onMouseLeave={hideMore}>
           {hoveredMore.items.map((t,i)=>(
@@ -1149,19 +1208,7 @@ function HeroView({newTask,setNewTask,addTask,projects}){
         <div className="hero-card">
           <div className="hero-left">
             <button type="button" className="hero-mic" onClick={()=>setOpenChips(o=>!o)} aria-expanded={openChips} aria-label="פתח תפריט בחירה">
-              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" className="hero-mic-svg">
-                <g className="target-rings">
-                  <circle className="target-ring target-ring-outer" cx="11" cy="13" r="8" strokeWidth="1.8" />
-                  <circle className="target-ring target-ring-inner" cx="11" cy="13" r="4.5" strokeWidth="1.5" />
-                  <circle cx="11" cy="13" r="1.5" fill="currentColor" />
-                </g>
-                <g className="target-arrow">
-                  <line x1="20" y1="4" x2="11" y2="13" strokeWidth="2" />
-                  <path d="M11 9v4h4" strokeWidth="1.8" />
-                  <line x1="18.5" y1="2.5" x2="21.5" y2="5.5" strokeWidth="1.5" />
-                  <line x1="17" y1="4" x2="20" y2="7" strokeWidth="1.5" />
-                </g>
-              </svg>
+              <span className="hero-mic-icon" aria-hidden="true">🎯</span>
             </button>
           </div>
           <input className="hero-input" placeholder="מה המשימה החדשה?" value={newTask.title} onChange={e=>updateTask("title",e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} dir="rtl" />
