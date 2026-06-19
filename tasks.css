@@ -198,10 +198,11 @@ input.qa-pill[type="date"] { min-width:128px; max-width:140px; padding:0 8px; }
 .week-nav-btn:hover { border-color:var(--accent); color:var(--accent); }
 .week-nav h3 { font-size:15px; font-weight:600; }
 .month-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--border); border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); }
-.month-grid-header { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--border); border-radius:var(--radius) var(--radius) 0 0; overflow:hidden; }
-.month-grid-body { display:grid; grid-template-columns:repeat(7,1fr); grid-auto-rows:minmax(100px,auto); gap:1px; background:var(--border); border-radius:0 0 var(--radius) var(--radius); overflow:hidden; box-shadow:var(--shadow); }
+.month-table-wrapper { display: flex; flex-direction: column; min-height: 400px; }
+.month-grid-header { display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--border); border-radius:var(--radius) var(--radius) 0 0; overflow:hidden; flex-shrink: 0; }
+.month-grid-body { display:grid; grid-template-columns:repeat(7,1fr); grid-auto-rows:1fr; flex:1; gap:1px; background:var(--border); border-radius:0 0 var(--radius) var(--radius); overflow:hidden; box-shadow:var(--shadow); }
 .month-day-head { background:var(--surface2); padding:4px 7px; text-align:center; font-size:12px; font-weight:600; color:var(--text2); line-height:1.2; }
-.month-cell { background:var(--surface); padding:4px; min-height:90px; overflow:hidden; display:flex; flex-direction:column; transition:background 0.1s; cursor:pointer; }
+.month-cell { background:var(--surface); padding:4px; min-height:0; overflow:hidden; display:flex; flex-direction:column; transition:background 0.1s; cursor:pointer; }
 .month-cell:hover { background:#FAFBFF; }
 .month-cell.add-active { background:var(--accent-bg) !important; }
 .month-cell.other-month { background:var(--bg); }
