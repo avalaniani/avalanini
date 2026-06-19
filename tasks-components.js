@@ -626,6 +626,7 @@ function WeekView({tasks,offset,setOffset,onEdit,onReschedule,onRescheduleMany,o
   const [dragOverTask,setDragOverTask]=useState({taskId:null,position:"after"});
   const [selected,setSelected]=useState(new Set());
   const dragTask=useRef(null);
+  const monthWrapperRef = useRef(null);
   const longPressTimer=useRef(null);
   const {addDate,handleCellClick,renderQuickAdd,showHint}=useDayQuickAdd(onQuickAdd);
   const weekDates=getWeekDates(offset);
@@ -903,7 +904,7 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
   const todayStr=today();
   const prev=()=>setMonthDate(d=>d.m===0?{y:d.y-1,m:11}:{y:d.y,m:d.m-1});
   const next=()=>setMonthDate(d=>d.m===11?{y:d.y+1,m:0}:{y:d.y,m:d.m+1});
-  const dragTask=useRef(null);
+  const monthWrapperRef = useRef(null);
   const longPressTimer=useRef(null);
   const [draggingId,setDraggingId]=useState(null);
   const [overDate,setOverDate]=useState(null);
@@ -998,7 +999,8 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
         <h3 style={{fontSize:16,fontWeight:700}}>{MONTHS_HE[m]} {y}</h3>
         {selected.size>0&&<span style={{fontSize:12,color:"var(--accent)",fontWeight:600,marginRight:8}}>✓ {selected.size} נבחרו — גרור לתא יעד או בחר תאריך בתחתית</span>}
       </div>
-      <div className="month-grid-header">
+      <div className="month-table-wrapper" style={{resize:"both", overflow:"auto"}} ref={monthWrapperRef} onDoubleClick={e=>{ if(monthWrapperRef.current){ monthWrapperRef.current.style.width=''; monthWrapperRef.current.style.height=''; }}}>
+<div className="month-grid-header">
         {DAYS_HE.map(d=><div key={d} className="month-day-head">{d}</div>)}
       </div>
       <div className="month-grid-body">
@@ -1052,6 +1054,7 @@ function MonthView({tasks,monthDate,setMonthDate,onEdit,onReschedule,onReschedul
           );
         })}
       </div>
+</div>
       {hoveredMore&&(
         <div className="more-tooltip" style={{top:hoveredMore.rect.bottom + 2,left:Math.min(hoveredMore.rect.left,window.innerWidth - 300)}} onMouseEnter={cancelHideMore} onMouseLeave={hideMore}>
           {hoveredMore.items.map((t,i)=>(
@@ -1146,7 +1149,19 @@ function HeroView({newTask,setNewTask,addTask,projects}){
         <div className="hero-card">
           <div className="hero-left">
             <button type="button" className="hero-mic" onClick={()=>setOpenChips(o=>!o)} aria-expanded={openChips} aria-label="פתח תפריט בחירה">
-              <span className="hero-mic-icon" aria-hidden="true">🎯</span>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" className="hero-mic-svg">
+                <g className="target-rings">
+                  <circle className="target-ring target-ring-outer" cx="11" cy="13" r="8" strokeWidth="1.8" />
+                  <circle className="target-ring target-ring-inner" cx="11" cy="13" r="4.5" strokeWidth="1.5" />
+                  <circle cx="11" cy="13" r="1.5" fill="currentColor" />
+                </g>
+                <g className="target-arrow">
+                  <line x1="20" y1="4" x2="11" y2="13" strokeWidth="2" />
+                  <path d="M11 9v4h4" strokeWidth="1.8" />
+                  <line x1="18.5" y1="2.5" x2="21.5" y2="5.5" strokeWidth="1.5" />
+                  <line x1="17" y1="4" x2="20" y2="7" strokeWidth="1.5" />
+                </g>
+              </svg>
             </button>
           </div>
           <input className="hero-input" placeholder="מה המשימה החדשה?" value={newTask.title} onChange={e=>updateTask("title",e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} dir="rtl" />
